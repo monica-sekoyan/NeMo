@@ -446,6 +446,7 @@ class _AudioTextDataset(Dataset):
         eos_id: Optional[int] = None,
         pad_id: int = 0,
         return_sample_id: bool = False,
+        return_lang_id: bool = False,
         channel_selector: Optional[ChannelSelectorType] = None,
     ):
         if type(manifest_filepath) == str:
@@ -467,6 +468,7 @@ class _AudioTextDataset(Dataset):
         self.featurizer = WaveformFeaturizer(sample_rate=sample_rate, int_values=int_values, augmentor=augmentor)
         self.trim = trim
         self.return_sample_id = return_sample_id
+        self.return_lang_id = return_lang_id
         self.channel_selector = channel_selector
 
     def get_manifest_sample(self, sample_id):
@@ -497,11 +499,13 @@ class _AudioTextDataset(Dataset):
 
         t, tl = self.manifest_processor.process_text_by_sample(sample=sample)
 
-        if self.return_sample_id:
-            output = f, fl, torch.tensor(t).long(), torch.tensor(tl).long(), index
-        else:
-            output = f, fl, torch.tensor(t).long(), torch.tensor(tl).long()
+        output = f, fl, torch.tensor(t).long(), torch.tensor(tl).long()
 
+        if self.return_sample_id:
+            output += (index)
+
+        if self.return_lang_id:
+            output += (sample.lang)
         return output
 
     def __len__(self):
@@ -828,6 +832,7 @@ class _TarredAudioToTextDataset(IterableDataset):
         global_rank: int = 0,
         world_size: int = 0,
         return_sample_id: bool = False,
+        return_lang_id: bool = False,
     ):
         self.shard_manifests = shard_manifests
 
@@ -863,6 +868,7 @@ class _TarredAudioToTextDataset(IterableDataset):
         self.bos_id = bos_id
         self.pad_id = pad_id
         self.return_sample_id = return_sample_id
+        self.return_lang_id = return_lang_id
 
         audio_tar_filepaths = expand_sharded_filepaths(
             sharded_filepaths=audio_tar_filepaths,
@@ -984,10 +990,16 @@ class _TarredAudioToTextDataset(IterableDataset):
             t = t + [self.eos_id]
             tl += 1
 
+        output = f, fl, torch.tensor(t).long(), torch.tensor(tl).long(), manifest_idx
+
         if self.return_sample_id:
-            return f, fl, torch.tensor(t).long(), torch.tensor(tl).long(), manifest_idx
-        else:
-            return f, fl, torch.tensor(t).long(), torch.tensor(tl).long()
+            output += (manifest_idx)
+        if self.return_lang_id:
+            output += (manifest_entry.lang)
+
+        return output
+
+
 
     def get_manifest_sample(self, sample_id):
         return self.manifest_processor.collection[sample_id]
@@ -1124,6 +1136,7 @@ class TarredAudioToCharDataset(_TarredAudioToTextDataset):
         global_rank: int = 0,
         world_size: int = 0,
         return_sample_id: bool = False,
+        return_lang_id: bool = False,
     ):
         self.labels = labels
 
@@ -1150,6 +1163,7 @@ class TarredAudioToCharDataset(_TarredAudioToTextDataset):
             global_rank=global_rank,
             world_size=world_size,
             return_sample_id=return_sample_id,
+            return_lang_id=return_lang_id,
         )
 
 
@@ -1251,6 +1265,7 @@ class TarredAudioToBPEDataset(_TarredAudioToTextDataset):
         global_rank: int = 0,
         world_size: int = 0,
         return_sample_id: bool = False,
+        return_lang_id: bool = False,
     ):
         if use_start_end_token and hasattr(tokenizer, "bos_id") and tokenizer.bos_id > 0:
             bos_id = tokenizer.bos_id
@@ -1304,6 +1319,7 @@ class TarredAudioToBPEDataset(_TarredAudioToTextDataset):
             global_rank=global_rank,
             world_size=world_size,
             return_sample_id=return_sample_id,
+            return_lang_id=return_lang_id
         )
 
 

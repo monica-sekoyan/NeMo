@@ -348,7 +348,7 @@ class EncDecHybridRNNTCTCModel(EncDecRNNTModel, ASRBPEMixin, InterCTCMixin):
         if self.is_interctc_enabled():
             AccessMixin.set_access_enabled(access_enabled=True, guid=self.model_guid)
 
-        signal, signal_len, transcript, transcript_len = batch
+        signal, signal_len, transcript, transcript_len, lang_labels = batch
 
         # forward() only performs encoder forward
         if isinstance(batch, DALIOutputs) and batch.has_processed_signal:
@@ -369,8 +369,10 @@ class EncDecHybridRNNTCTCModel(EncDecRNNTModel, ASRBPEMixin, InterCTCMixin):
 
         if (sample_id + 1) % log_every_n_steps == 0:
             compute_wer = True
+            compute_acc = True
         else:
             compute_wer = False
+            compute_acc = False
 
         # If fused Joint-Loss-WER is not used
         if not self.joint.fuse_loss_wer:
@@ -439,6 +441,21 @@ class EncDecHybridRNNTCTCModel(EncDecRNNTModel, ASRBPEMixin, InterCTCMixin):
                 ctc_wer, _, _ = self.ctc_wer.compute()
                 self.ctc_wer.reset()
                 tensorboard_logs.update({'training_batch_wer_ctc': ctc_wer})
+
+        if self.lid_loss_weight > 0:
+            log_probs = self.lid_decoder(encoder_output=encoded)
+            lid_loss = self.lid_loss(
+                log_probs=log_probs, targets=lang_labels
+            )
+            tensorboard_logs['train_rnnt_ctc_loss'] = loss_value
+            tensorboard_logs['train_lid_loss'] = lid_loss
+            loss_value = (1 - self.lid_loss_weight) * loss_value + self.lid_loss_weight * lid_loss
+            if compute_acc:
+                lid_acc = self.lid_acc(
+                    predictions=log_probs,
+                    targets=lang_labels,
+                )
+                tensorboard_logs.update({'training_batch_lid_acc': lid_acc})
 
         # note that we want to apply interctc independent of whether main ctc
         # loss is used or not (to allow rnnt + interctc training).
