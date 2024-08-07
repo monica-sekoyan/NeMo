@@ -427,41 +427,57 @@ def read_nemo_manifest(config, is_tarred: bool) -> CutSet:
         for manifest_info, (tar_path,) in zip(config.manifest_filepath, tar_paths):
             # First, convert manifest_path[+tar_path] to an iterator.
             manifest_path = manifest_info[0]
-            if is_tarred and not metadata_only:
-                nemo_iter = LazyNeMoTarredIterator(
-                    manifest_path=manifest_path,
-                    tar_paths=tar_path,
-                    **common_kwargs,
-                )
+            if manifest_path.endswith('.txt'):
+                with open(manifest_path, 'r') as f:
+                    manifest_subpaths = f.readlines()
+
             else:
-                nemo_iter = LazyNeMoIterator(manifest_path, **notar_kwargs, **common_kwargs)
-            # Then, determine the weight or use one provided
-            if len(manifest_info) == 1:
-                weight = len(nemo_iter)
+                manifest_subpaths = [manifest_path]
+
+            if tar_path.endswith('.txt'):
+                with open(tar_path, 'r') as f:
+                   tar_subpaths = f.readlines()
+
             else:
-                assert (
-                    isinstance(manifest_info, Sequence)
-                    and len(manifest_info) == 2
-                    and isinstance(manifest_info[1], (int, float))
-                ), (
-                    "Supported inputs types for config.manifest_filepath are: "
-                    "str | list[list[str]] | list[tuple[str, number]] "
-                    "where str is a path and number is a mixing weight (it may exceed 1.0). "
-                    f"We got: '{manifest_info}'"
-                )
-                weight = manifest_info[1]
-            logging.info(f"- {manifest_path=} {weight=}")
-            # [optional] When we have a limit on the number of open streams,
-            #   split the manifest to individual shards if applicable.
-            #   This helps the multiplexing achieve closer data distribution
-            #   to the one desired in spite of the limit.
-            if config.max_open_streams is not None:
-                for subiter in nemo_iter.to_shards():
-                    cutsets.append(CutSet(subiter))
+                tar_subpaths = [tar_path]
+
+            for manifest_path, tar_subpaths in zip(manifest_subpaths, tar_subpaths):
+                if is_tarred and not metadata_only:
+                    nemo_iter = LazyNeMoTarredIterator(
+                        manifest_path=manifest_path,
+                        tar_paths=tar_path,
+                        **common_kwargs,
+                    )
+                else:
+                    nemo_iter = LazyNeMoIterator(manifest_path, **notar_kwargs, **common_kwargs)
+                # Then, determine the weight or use one provided
+                if len(manifest_info) == 1:
+                    weight = len(nemo_iter)
+                else:
+                    assert (
+                        isinstance(manifest_info, Sequence)
+                        and len(manifest_info) == 2
+                        and isinstance(manifest_info[1], (int, float))
+                    ), (
+                        "Supported inputs types for config.manifest_filepath are: "
+                        "str | list[list[str]] | list[tuple[str, number]] "
+                        "where str is a path and number is a mixing weight (it may exceed 1.0). "
+                        f"We got: '{manifest_info}'"
+                    )
+                    weight = manifest_info[1]
+                logging.info(f"- {manifest_path=} {weight=}")
+                # [optional] When we have a limit on the number of open streams,
+                #   split the manifest to individual shards if applicable.
+                #   This helps the multiplexing achieve closer data distribution
+                #   to the one desired in spite of the limit.
+                if config.max_open_streams is not None:
+                    for subiter in nemo_iter.to_shards():
+                        cutsets.append(CutSet(subiter))
+                        weights.append(weight)
+                else:
+                    cutsets.append(CutSet(nemo_iter))
                     weights.append(weight)
-            else:
-                cutsets.append(CutSet(nemo_iter))
-                weights.append(weight)
+
         # Finally, we multiplex the dataset streams to mix the data.
         cuts = mux(
             *cutsets,
