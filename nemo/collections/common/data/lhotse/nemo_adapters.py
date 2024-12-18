@@ -126,6 +126,9 @@ class LazyNeMoIterator:
                     duration=duration,
                     sampling_rate=data.pop("sampling_rate", None),
                 )
+
+                if not cut:
+                    continue
                 # Note that start=0 and not start=offset because supervision's start if relative to the
                 # start of the cut; and cut.start is already set to offset
                 cut.supervisions.append(
@@ -158,7 +161,12 @@ class LazyNeMoIterator:
         sampling_rate: int | None = None,
     ) -> Cut:
         if not self.metadata_only:
-            recording = self._create_recording(audio_path, data, duration, sampling_rate)
+            try:
+                recording = self._create_recording(audio_path, data, duration, sampling_rate)
+            except Exception as e:
+                logging.warning(f"Encountered {e} with {audio_path}. Skipping!")
+                return
+                
             cut = recording.to_cut()
             if offset is not None:
                 cut = cut.truncate(offset=offset, duration=duration, preserve_id=True)
@@ -404,8 +412,8 @@ class LazyNeMoTarredIterator:
         offset_pattern = re.compile(r'^(?P<stem>.+)(?P<sub>-sub\d+)(?P<ext>\.\w+)?$')
 
         iter_fn = self._iter_random_read if self.tarred_random_access else self._iter_sequential
-        for sid in shard_ids:
-            manifest_path = self.paths[sid] if len(self.paths) > 1 else self.paths[0]
+        for idx, sid in enumerate(shard_ids):
+            manifest_path = self.paths[idx] if len(self.paths) > 1 else self.paths[0]
 
             def basename(d: dict) -> str:
                 return (
