@@ -420,6 +420,7 @@ def get_lhotse_dataloader_from_config(
         batch_size=None,
         num_workers=config.num_workers,
         pin_memory=config.pin_memory,
+        collate_fn=lambda batch: batch,
     )
 
     return dloader
